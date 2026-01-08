@@ -1,18 +1,22 @@
 version: '3.8'
 
 services:
+  # Official Shim from Docker Hub
   shim:
     image: alh477/dcf-shim:latest
     network_mode: host
     environment:
       - SHIM_INGRESS_PORT=9999
       - SHIM_NODE_TARGET=127.0.0.1:7777
+    restart: always
 
+  # Local Router (Head)
   head:
-    image: demod/mesh-head:latest
+    image: alh477/mesh-head:latest
     network_mode: host
+    restart: always
 
-  # NVIDIA Worker
+  # Worker A: NVIDIA GPU
   worker-nvidia:
     image: alh477/mesh-worker-nvidia:latest
     network_mode: host
@@ -29,17 +33,13 @@ services:
     volumes:
       - ./model-cache:/data/huggingface
 
-  # AMD ROCm Worker
-  worker-rocm:
-    image: alh477/mesh-worker-rocm:latest
+  # Worker B: CPU / Hardware Agnostic
+  # Runs on standard RAM/CPU (Slower, but universal compatibility)
+  worker-cpu:
+    image: alh477/mesh-worker-cpu:latest
     network_mode: host
     command: ["python3", "/bin/worker_node.py", "--head-ip", "127.0.0.1"]
-    # ROCm requires access to KFD and Render devices
-    devices:
-      - /dev/kfd
-      - /dev/dri
     environment:
       - HF_TOKEN=${HF_TOKEN}
-      - HSA_OVERRIDE_GFX_VERSION=10.3.0 # Example for RDNA2
     volumes:
       - ./model-cache:/data/huggingface
