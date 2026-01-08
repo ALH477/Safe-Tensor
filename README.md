@@ -1,8 +1,6 @@
-# NixOS Stable Diffusion Inference Environment
+# AI Inference Environment (NixOS)
 
-This repository provides a comprehensive Nix flake for deploying and running Stable Diffusion inference environments. It is designed for high-performance workloads using CUDA acceleration and emphasizes reproducibility through the Nix package manager.
-
----
+This repository provides a comprehensive Nix flake for deploying and running AI inference workloads. It supports both **Stable Diffusion** (image generation) and **LLMs** (text generation) using the SafeTensors format and CUDA acceleration.
 
 ## Copyright and License
 
@@ -18,113 +16,25 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ---
 
-## Technical Specifications
+## Features
 
-The environment is built upon the following stack:
-
-| Component | Version / Specification |
-| --- | --- |
-| **Operating System** | NixOS (Unstable Branch) |
-| **Language Runtime** | Python 3.11 |
-| **ML Framework** | PyTorch with CUDA Support |
-| **Model Format** | SafeTensors (Default) |
-| **Acceleration** | xformers, CUDA Toolkit, cuDNN |
-| **Interface** | Gradio (Web UI) and Argparse (CLI) |
-
----
+* **Dual Modality**: Support for Image (Diffusers) and Text (Transformers) inference.
+* **Format Security**: Strictly prefers `.safetensors` to avoid pickle-based vulnerabilities.
+* **CUDA Optimized**: Auto-detects NVIDIA GPUs and enables fp16 precision, attention slicing, and 4-bit LLM quantization.
+* **Unified Web UI**: A tabbed Gradio interface for interacting with both models.
+* **NixOS Integration**: Includes a module for deploying as a systemd service.
 
 ## Prerequisites
 
-1. **Nix Package Manager**: Must have Flakes and Nix Command enabled.
-2. **NVIDIA GPU**: Required for hardware acceleration.
-3. **Nix Config**: Ensure `allowUnfree = true` is set in your Nix configuration to permit CUDA driver usage.
+1.  **Nix Package Manager** (Flakes enabled).
+2.  **NVIDIA GPU** with proprietary drivers enabled in your host Nix config (`allowUnfree = true`).
+3.  **HuggingFace Token**: Some models (like Llama 2/3) require a token. Log in via `huggingface-cli login` inside the dev shell if needed.
 
----
+## Usage
 
-## Usage Instructions
+### 1. Development Shell
 
-### Development Environment
-
-To enter an isolated shell with all dependencies, model paths, and library paths pre-configured:
+Enter the environment to access python scripts and system dependencies directly:
 
 ```bash
 nix develop
-
-```
-
-### Command Line Inference
-
-The CLI tool allows for direct image generation from the terminal. By default, it uses the Stable Diffusion v1-5 model.
-
-```bash
-nix run .#inference -- --prompt "High resolution architectural render of a modern library"
-
-```
-
-Available arguments:
-
-* `--prompt`: The text description for generation (Required).
-* `--model`: HuggingFace model ID or local path.
-* `--output`: Filename for the generated image.
-* `--steps`: Number of inference steps (Default: 25).
-
-### Web Interface
-
-To launch the Gradio-based web UI for interactive generation:
-
-```bash
-nix run .#webui
-
-```
-
-The interface will be accessible at `http://localhost:7860`.
-
----
-
-## NixOS System Deployment
-
-This flake includes a NixOS module for system-wide service deployment. This is ideal for headless servers or dedicated inference nodes.
-
-### Configuration Example
-
-Add the flake to your inputs and include the module in your system configuration:
-
-```nix
-{
-  inputs.sd-env.url = "github:demod-llc/stable-diffusion-flake";
-
-  outputs = { nixpkgs, sd-env, ... }: {
-    nixosConfigurations.server = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        sd-env.nixosModules.default
-        {
-          services.stable-diffusion = {
-            enable = true;
-            model = "runwayml/stable-diffusion-v1-5";
-            port = 7860;
-          };
-        }
-      ];
-    };
-  };
-}
-
-```
-
----
-
-## Data Management
-
-The environment dynamically handles model caching based on the execution context:
-
-* **System Service**: Models are stored in `/var/lib/stable-diffusion-models`.
-* **User Execution**: Models are stored in `$HOME/.cache/stable-diffusion-models`.
-
-This ensures that development activities do not interfere with system-level service persistence and prevents permission conflicts.
-
----
-
-## Optimization Notes
-
-The pipeline utilizes `torch.float16` and `enable_attention_slicing()` when CUDA is detected to minimize VRAM consumption. For users with restricted hardware, further memory optimizations can be configured within the `inference.py` script by adjusting the `pipe.enable_sequential_cpu_offload()` settings.
