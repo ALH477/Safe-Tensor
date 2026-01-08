@@ -1,32 +1,32 @@
 version: '3.8'
 
 services:
-  # 1. The DCF Shim (Ingress)
-  # Updated to use the official image from alh477 on Docker Hub
+  # Official DCF Bridge (Ingress)
   shim:
     image: alh477/dcf-shim:latest
-    network_mode: host # Optimization: Direct access to UDP 9999 and 7777
+    network_mode: host
     environment:
       - SHIM_INGRESS_PORT=9999
       - SHIM_NODE_TARGET=127.0.0.1:7777
       - RUST_LOG=info
     restart: always
 
-  # 2. The Head Node (Router)
-  # Receives client traffic from the Shim and routes to Workers
+  # Local Mesh Router (Head)
   head:
     image: alh477/mesh-head:latest
     network_mode: host
-    environment:
-      - HF_TOKEN=${HF_TOKEN}
     restart: always
 
-  # 3. Worker Node (GPU Engine)
-  # Joins the cluster via UDP heartbeats and performs inference
+  # Local GPU Worker (Inference)
   worker:
     image: alh477/mesh-worker:latest
     network_mode: host
-    command: ["python3", "/bin/worker_node.py", "--head-ip", "127.0.0.1"]
+    # Pointing to the internal container path /models/...
+    command: [
+      "python3", "/bin/worker_node.py", 
+      "--head-ip", "127.0.0.1",
+      "--model-path", "/models/my_model.safetensors"
+    ]
     deploy:
       resources:
         reservations:
@@ -34,8 +34,10 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
     volumes:
+      # Map your host 'local-models' dir to container '/models'
+      # Ensure you place your .safetensors file here
+      - ./local-models:/models
+      # Cache for HF models (if needed)
       - ./model-cache:/data/huggingface
     restart: always
