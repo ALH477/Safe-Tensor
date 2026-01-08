@@ -1,32 +1,22 @@
 version: '3.8'
 
 services:
-  # Official DCF Bridge (Ingress)
   shim:
     image: alh477/dcf-shim:latest
     network_mode: host
     environment:
       - SHIM_INGRESS_PORT=9999
       - SHIM_NODE_TARGET=127.0.0.1:7777
-      - RUST_LOG=info
-    restart: always
 
-  # Local Mesh Router (Head)
   head:
-    image: alh477/mesh-head:latest
+    image: demod/mesh-head:latest
     network_mode: host
-    restart: always
 
-  # Local GPU Worker (Inference)
-  worker:
-    image: alh477/mesh-worker:latest
+  # NVIDIA Worker
+  worker-nvidia:
+    image: alh477/mesh-worker-nvidia:latest
     network_mode: host
-    # Pointing to the internal container path /models/...
-    command: [
-      "python3", "/bin/worker_node.py", 
-      "--head-ip", "127.0.0.1",
-      "--model-path", "/models/my_model.safetensors"
-    ]
+    command: ["python3", "/bin/worker_node.py", "--head-ip", "127.0.0.1"]
     deploy:
       resources:
         reservations:
@@ -34,10 +24,22 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
     volumes:
-      # Map your host 'local-models' dir to container '/models'
-      # Ensure you place your .safetensors file here
-      - ./local-models:/models
-      # Cache for HF models (if needed)
       - ./model-cache:/data/huggingface
-    restart: always
+
+  # AMD ROCm Worker
+  worker-rocm:
+    image: alh477/mesh-worker-rocm:latest
+    network_mode: host
+    command: ["python3", "/bin/worker_node.py", "--head-ip", "127.0.0.1"]
+    # ROCm requires access to KFD and Render devices
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - HSA_OVERRIDE_GFX_VERSION=10.3.0 # Example for RDNA2
+    volumes:
+      - ./model-cache:/data/huggingface
