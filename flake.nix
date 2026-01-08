@@ -86,7 +86,7 @@
 
           # 1. Head Node (Vendor Neutral)
           container-head = pkgsCuda.dockerTools.buildLayeredImage {
-            name = "demod/mesh-head";
+            name = "alh477/mesh-head";
             tag = "latest";
             contents = [ pythonML_Nvidia meshSource pkgsCuda.bash pkgsCuda.coreutils ];
             config = {
@@ -99,7 +99,7 @@
 
           # 2. Worker Node (NVIDIA)
           container-worker-nvidia = pkgsCuda.dockerTools.buildLayeredImage {
-            name = "demod/mesh-worker-nvidia";
+            name = "alh477/mesh-worker-nvidia";
             tag = "latest";
             maxLayers = 120;
             contents = [ pythonML_Nvidia meshSource pkgsCuda.cudaPackages.cudatoolkit pkgsCuda.bash ];
