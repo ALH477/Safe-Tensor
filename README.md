@@ -1,156 +1,65 @@
 # HydraMesh DCF: Distributed AI Inference Cluster
 
-## Overview
+The HydraMesh Distributed AI Inference Cluster is a high-performance, low-latency framework designed for distributed data exchange and real-time AI synchronization. It implements a Distributed Actor System that utilizes the 17-byte binary UDP transport protocol defined by the DeMoD Communications Framework (DCF) v5.0.0. This version ensures hardware-agnostic deployments, supporting resources from edge devices to high-performance GPU clusters on NixOS.
 
-HydraMesh is a high-performance, low-latency distributed inference framework built on the **DeMoD Communications Framework (DCF) v5.0.0**. It leverages a handshakeless, 17-byte binary UDP protocol to facilitate real-time data exchange between nodes. The system is built using NixOS flakes to provide bit-for-bit reproducible environments for development, containerized deployment, and bare-metal ISO execution.
+---
+
+## Copyright and License
+
+Copyright (c) 2026 DeMoD LLC. All rights reserved. This software is licensed under the BSD-3-Clause License. The underlying DCF design specifications are provided under the GPL-3.0 License. This ensures transparency and community-driven development while protecting the proprietary implementations of the shim and driver logic.
 
 ---
 
 ## System Architecture
 
-The cluster is composed of three primary layers to ensure a modular and scalable design:
+The environment implements a Distributed DCF Mesh Orchestrator, which effectively decouples high-level routing from intensive GPU computation.
 
-1. 
-**Ingress Layer (DCF Shim)**: A high-speed Rust bridge that receives external UDP traffic and encapsulates it into the 17-byte DCF header.
-
-
-2. 
-**Routing Layer (Head Node)**: A central controller that manages worker health via heartbeats and distributes tasks using round-robin logic.
-
-
-3. **Inference Layer (Worker Nodes)**: GPU-accelerated endpoints supporting both NVIDIA (CUDA) and AMD (ROCm) backends.
-
----
-
-## Use Cases and Deployment Modes
-
-### 1. Local Development
-
-**Use Case:** Development and testing of models or protocol extensions.
-
-**Command**: `nix develop` for NVIDIA/General or `nix develop .#rocm` for AMD.
-
-**Features**: Provides a full toolchain including Python 3.11 with ML stack, Rust stable, and hardware-specific SDKs.
-
-
-
-### 2. Containerized Deployment
-
-**Use Case:** Scaling across modern cloud or local Docker infrastructure.
-
-* **Build Head**: `nix build .#container-head`
-* **Build Worker (NVIDIA)**: `nix build .#container-worker-nvidia`
-* **Build Worker (AMD)**: `nix build .#container-worker-rocm`
-
-### 3. Bare-Metal All-in-One (ISO)
-
-**Use Case:** Deploying a "headless" GPU server or a portable development station without installing a persistent OS.
- 
-**Command**: `nix build .#iso`.
- 
-**Function**: Creates a bootable NixOS ISO pre-loaded with NVIDIA and ROCm drivers, the full DCF SDK, and automated worker logic.
-
-
+The Ingress Layer uses the DCF Standalone Shim, a high-performance bidirectional UDP bridge written in Rust, which serves as the entry point for external clients. The Routing Layer consists of the Head Controller, a central router that manages the worker registry via UDP heartbeats and load-balances tasks across the mesh using 17-byte DCF messages. The Inference Layer is comprised of Worker Nodes, which are GPU-accelerated endpoints that execute LLM and Stable Diffusion tasks using 4-bit quantization and RAM offloading for hardware efficiency.
 
 ---
 
 ## Sourcing Models
 
-The system supports both remote sourcing from the Hugging Face Hub and local hosting of Safe Tensor files.
+The system is designed to pull models dynamically using your Hugging Face credentials, which is essential for accessing gated models like Llama-3 or Mistral. To configure this, you must obtain a "Read" access token from your Hugging Face settings and provide it to the cluster through the `HF_TOKEN` environment variable or the `hfToken` Nix option.
 
-### Remote Models (Hugging Face)
-
-The cluster requires a Hugging Face Access Token to download and cache models.
-
-* **Environment Variable**: Set `HF_TOKEN` in your shell or `.env` file.
-* 
-**NixOS Option**: Set `services.hydramesh.hfToken` in your configuration.
-
-
-
-### Local Models (Safe Tensor)
-
-**Use Case:** Loading custom .safetensors files (e.g., from CivitAI) directly from disk.
-
-* **Setup**: Place `.safetensors` files in the `./local-models` directory.
-* 
-**Loading**: The worker uses the `from_single_file` loader to map weights directly into memory with maximum security and efficiency.
-
-
+For local hosting, the cluster supports loading custom `.safetensors` files directly from a designated directory. Users should place their model checkpoints in the `./local-models` folder, and the worker node will use the `from_single_file` loader to map weights into memory with high security and efficiency.
 
 ---
 
-## Docker Compose Configuration
+## Deployment Artifacts (alh477)
 
-This setup utilizes the official DCF Shim and your locally built images.
+The flake generates OCI-compliant containers under the `alh477` namespace to suit various hardware requirements.
 
-```yaml
-version: '3.8'
+The `alh477/mesh-head` image is a lightweight cluster router designed to run on any standard CPU. For NVIDIA users, the `alh477/mesh-worker-nvidia` image provides an inference engine optimized for CUDA. AMD users can utilize the `alh477/mesh-worker-rocm` image, which is built specifically for ROCm backends. Finally, the `alh477/mesh-worker-cpu` image offers a universal, hardware-agnostic inference engine that runs on any machine without requiring specific GPU drivers.
 
-services:
-  # Official DCF Bridge from alh477
-  shim:
-    image: alh477/dcf-shim:latest
-    network_mode: host
-    environment:
-      - SHIM_INGRESS_PORT=9999
-      - SHIM_NODE_TARGET=127.0.0.1:7777
-    restart: always
+---
 
-  # Local Mesh Router
-  head:
-    image: alh477/mesh-head:latest
-    network_mode: host
-    restart: always
+## Bare-Metal All-in-One (ISO)
 
-  # Local GPU Worker (NVIDIA Example)
-  worker:
-    image: alh477/mesh-worker-nvidia:latest
-    network_mode: host
-    command: [
-      "python3", "/bin/worker_node.py", 
-      "--head-ip", "127.0.0.1",
-      "--model-path", "/models/my_custom_model.safetensors"
-    ]
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    volumes:
-      - ./local-models:/models
-      - ./model-cache:/data/huggingface
-    restart: always
+The All-in-One ISO is a bootable NixOS environment designed for field deployment or rapid development. It creates a portable "Swiss Army Knife" that pre-configures the entire toolchain, including Rust, Python, and CUDA, along with the project source code.
 
-```
+When booted, the ISO automatically initializes kernel drivers for both NVIDIA and AMD hardware. It allows the machine to join the cluster as a worker or act as a head node without requiring a persistent OS installation. Developers can also use this environment for real-time coding and performance profiling using included tools like `nvtop` and `rust-analyzer`.
 
 ---
 
 ## Protocol Definition (17-Byte Header)
 
-All cluster traffic adheres to the following binary structure:
+All internal cluster traffic adheres to the DCF 17-byte handshakeless binary header to ensure wire compatibility and minimal overhead.
 
-| Size | Type | Field | Description |
-| --- | --- | --- | --- |
-| 1B | u8 | `msg_type` | 0x01: Heartbeat, 0x02: Task, 0x03: Result 
-
- |
-| 4B | u32 | `sequence` | Big-Endian packet identifier |
-| 8B | u64 | `timestamp` | Microseconds since Epoch 
-
- |
-| 4B | u32 | `payload_len` | Length of the subsequent data payload |
+The structure begins with a 1-byte `msg_type` (0x01 for Heartbeat, 0x02 for Task, 0x03 for Result), followed by a 4-byte Big-Endian `sequence` identifier for client tracking. An 8-byte Big-Endian `timestamp` records microseconds since the Epoch. The header concludes with a 4-byte Big-Endian `payload_len`, which specifies the length of the subsequent data payload.
 
 ---
 
 ## Resource Management and Stability
 
-**RAM Offloading**: Prevents Out-Of-Memory (OOM) crashes by spilling model weights from VRAM to System RAM using Accelerate.
+Professional stability is ensured through aggressive resource management strategies. RAM Offloading prevents Out-Of-Memory (OOM) crashes by spilling model weights from VRAM to System RAM when capacity is reached.
 
-**Precision**: Defaults to `torch.float16` for GPU backends to reduce memory footprint by 50%.
+The NixOS module applies hardened isolation using `ProtectSystem` and `PrivateTmp` to secure the inference environment. Furthermore, workers are assigned an `OOMScoreAdjust` of -500, which prioritizes the inference process and protects it from kernel termination during heavy load spikes. The Head Node also implements self-healing by pruning workers that fail to send heartbeats within a 10-second window.
 
-**Hardened Isolation**: The NixOS module utilizes `ProtectSystem` and `PrivateTmp` to secure the inference environment.
+---
 
-**Priority Handling**: Workers are assigned an `OOMScoreAdjust` of -500 to protect the inference process from kernel termination during heavy load.
+## Developer Experience (DevX)
+
+The project provides a dedicated development shell that can be accessed via `nix develop` or `nix-shell`. This environment is equipped with auto-detection logic that scans the host system for NVIDIA or AMD drivers before falling back to a CPU-only mode.
+
+The shell pre-loads all necessary compilers, ML libraries, and hardware-specific SDKs. It includes aliases and environment variables that point to the correct dynamic libraries, ensuring that tools like `bitsandbytes` function correctly across different hardware backends. This unified interface allows developers to switch between local testing and cluster deployment seamlessly.
