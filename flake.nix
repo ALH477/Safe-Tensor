@@ -43,6 +43,7 @@
           torch accelerate safetensors huggingface-hub
           transformers diffusers bitsandbytes sentencepiece protobuf
           pydantic requests numpy
+          pillow omegaconf
         ]);
 
         # Rust Toolchain (for DevShell/ISO)
@@ -50,7 +51,7 @@
           extensions = [ "rust-src" "rust-analyzer" "clippy" ];
         };
 
-        # Source Code Derivation (Keeps containers clean)
+        # Source Code Derivation
         meshSource = pkgs.stdenv.mkDerivation {
           name = "hydramesh-src";
           src = ./src;
@@ -63,10 +64,10 @@
 
       in {
         # ==========================================
-        # 1. Individual Containers (Head & Worker)
+        # 1. Individual Containers
         # ==========================================
         packages.container-head = pkgs.dockerTools.buildLayeredImage {
-          name = "demod/mesh-head";
+          name = "alh477/mesh-head";
           tag = "latest";
           contents = [ pythonCore meshSource pkgs.bash pkgs.coreutils ];
           config = {
@@ -78,9 +79,8 @@
         };
 
         packages.container-worker = pkgs.dockerTools.buildLayeredImage {
-          name = "demod/mesh-worker";
+          name = "alh477/mesh-worker";
           tag = "latest";
-          # Maximize layering for huge ML libs
           maxLayers = 120;
           contents = [ pythonML meshSource pkgs.cudaPackages.cudatoolkit pkgs.bash ];
           config = {
@@ -92,20 +92,19 @@
             ];
             ExposedPorts = { "7779/udp" = {}; };
             WorkingDir = "/data";
-            Volumes = { "/data" = {}; };
+            Volumes = { "/data" = {}; "/models" = {}; };
           };
         };
 
         # ==========================================
-        # 2. All-in-One ISO (Host + Dev Environment)
+        # 2. All-in-One ISO
         # ==========================================
         packages.iso = nixos-generators.nixosGenerate {
           inherit system;
           modules = [
-            self.nixosModules.default # Include our service definitions
-            ./iso/configuration.nix   # ISO-specific config
+            self.nixosModules.default 
+            ./iso/configuration.nix   
             ({ pkgs, ... }: {
-               # Add the entire Dev Toolchain to the ISO
                environment.systemPackages = [
                  pythonML
                  rustToolchain
@@ -113,7 +112,6 @@
                  pkgs.htop
                  pkgs.nvtopPackages.full
                  pkgs.neovim
-                 # Include the local source scripts in the path
                  meshSource
                ];
             })
@@ -122,7 +120,7 @@
         };
 
         # ==========================================
-        # 3. DevShell (Local Development)
+        # 3. DevShell
         # ==========================================
         devShells.default = pkgs.mkShell {
           buildInputs = [ pythonML rustToolchain pkgs.cargo-watch pkgs.cudaPackages.cudatoolkit ];
@@ -134,7 +132,7 @@
         };
 
         # ==========================================
-        # 4. NixOS Module (Service Definition)
+        # 4. NixOS Module
         # ==========================================
         nixosModules.default = { config, lib, pkgs, ... }: 
           let cfg = config.services.hydramesh; in {
@@ -143,6 +141,7 @@
               role = lib.mkOption { type = lib.types.enum [ "head" "worker" ]; default = "worker"; };
               headIp = lib.mkOption { type = lib.types.str; default = "127.0.0.1"; };
               hfToken = lib.mkOption { type = lib.types.str; default = ""; };
+              localModelPath = lib.mkOption { type = lib.types.str; default = ""; };
             };
 
             config = lib.mkIf cfg.enable {
@@ -160,10 +159,11 @@
                   Group = "hydramesh";
                   WorkingDirectory = "/var/lib/hydramesh";
                   Restart = "always";
+                  OOMScoreAdjust = -500;
                   ExecStart = if cfg.role == "head" then
                     "python3 ${meshSource}/bin/head_controller.py"
                   else
-                    "python3 ${meshSource}/bin/worker_node.py --head-ip ${cfg.headIp}";
+                    "python3 ${meshSource}/bin/worker_node.py --head-ip ${cfg.headIp} ${if cfg.localModelPath != "" then "--model-path " + cfg.localModelPath else ""}";
                 };
               };
             };
