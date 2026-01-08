@@ -1,127 +1,103 @@
-# AI Inference Cluster (HydraMesh/DCF Edition)
+# HydraMesh DCF: Distributed AI Inference Cluster
 
-This repository provides a production-ready, distributed AI inference environment built on the **DeMoD Communications Framework (DCF)** design principles. It utilizes a high-performance, 17-byte binary UDP transport for inter-node communication, achieving the low-latency targets required for real-time applications.
+## Overview
+
+The HydraMesh Distributed AI Inference Cluster is a high-performance, low-latency framework designed for distributed data exchange and real-time AI synchronization. This project implements a **Distributed Actor System** utilizing the 17-byte binary UDP transport protocol defined by the **DeMoD Communications Framework (DCF) v5.0.0**.
+
+The system is optimized for hardware-agnostic deployments, supporting everything from resource-constrained edge devices to high-performance GPU clusters on NixOS.
 
 ---
 
 ## Copyright and License
 
-Copyright (c) 2026, DeMoD LLC. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-3. Neither the name of DeMoD LLC nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+**Copyright (c) 2026 DeMoD LLC. All rights reserved.** This software is licensed under the **BSD-3-Clause License**. The underlying DCF design specifications are provided under the **GPL-3.0 License**.
 
 ---
 
-## System Architecture
+## Use Cases and Instructions
 
-The environment implements a **Distributed DCF Mesh Orchestrator**, decoupling high-level routing from intensive GPU computation.
+### 1. External Ingress (The Shim)
 
-### Core Components
+**Use Case:** Bridging external game clients or IoT devices to the internal HydraMesh cluster. The Shim acts as the secure, high-speed entry point that handles binary serialization.
 
-* **DCF Standalone Shim**: A high-performance bidirectional UDP bridge written in Rust, serving as the ingress point for external clients.
-* 
-**Head Controller**: The central router that manages the `WorkerRegistry` via UDP heartbeats and load-balances tasks across the mesh using 17-byte DCF messages.
+**How to Use:**
 
+* The Shim is provided as a containerized Rust application.
+* **Ingress Port:** 9999 (UDP).
+* **Target:** Should point to the Head Node's Ingress Port (7777).
+* **Command:** `docker run -e SHIM_NODE_TARGET=192.168.1.50:7777 -p 9999:9999/udp demod/dcf-shim`.
 
-* 
-**Worker Nodes**: GPU-accelerated inference endpoints that execute LLM and Stable Diffusion tasks, utilizing 4-bit quantization and RAM offloading for hardware efficiency.
+### 2. Cluster Routing (Head Node)
 
+**Use Case:** Managing the `WorkerRegistry` and load-balancing inference tasks across all active GPU workers using a round-robin strategy.
 
+**How to Use:**
+
+* **Container:** `nix build .#container-head` and load into Docker.
+* **Role:** Set the role to `head`. It will listen for internal worker heartbeats on port 7778 and client traffic on 7777.
+* **Status:** Monitor the Ray Dashboard (if enabled) or the Head logs to see worker registration.
+
+### 3. GPU Inference (Worker Node)
+
+**Use Case:** Performing heavy Large Language Model (LLM) or Stable Diffusion generation. Workers utilize **4-bit quantization** and **System RAM Offloading** to prevent crashes on limited hardware.
+
+**How to Use:**
+
+* **Container:** `nix build .#container-worker` and load into Docker.
+* **Role:** Set to `worker` and provide the `headIp`.
+* **Hardware:** Requires NVIDIA Container Toolkit. Ensure the worker has access to `/run/opengl-driver/lib` for CUDA linking.
+
+### 4. Portable All-in-One (The ISO)
+
+**Use Case:** A "Swiss Army Knife" for field deployment or rapid development. Boot any GPU-capable machine into a full NixOS environment pre-configured with the entire toolchain (Rust, Python, CUDA) and the local source code.
+
+**How to Use:**
+
+* **Build:** `nix build .#iso`.
+* **Flash:** Use `dd` or BalenaEtcher to flash the resulting `.iso` to a USB drive.
+* **Boot:** Boot from USB. Log in with user `nixos` and password `hydra`.
+* **Dev:** The ISO includes `rust-analyzer`, `python-lsp`, and `nvtop` for immediate performance profiling and coding.
 
 ---
 
-## Technical Specifications
+## Protocol Specification
 
-| Component | Specification |
-| --- | --- |
-| **Protocol** | DCF Binary UDP (17-byte header) 
+The system utilizes the DCF 17-byte handshakeless binary header for all internal cluster communication:
+
+| Offset | Field | Type | Description |
+| --- | --- | --- | --- |
+| 0 | `msg_type` | u8 | 0x01: Heartbeat, 0x02: Task, 0x03: Result 
 
  |
-| **Header Format** | `Type(u8)` |
-| **Target Latency** | <1ms local exchange 
+| 1 | `sequence` | u32 | Big-Endian packet identifier |
+| 5 | `timestamp` | u64 | Microseconds since Epoch 
 
  |
-| **ML Framework** | PyTorch / Hugging Face Transformers & Diffusers |
-| **NixOS Support** | Native Flake with Systemd Hardening & Resource Limits |
-
----
-
-## Cluster Protocol Definition
-
-The cluster utilizes the following message types for orchestration:
-
-* 
-**MSG_HEARTBEAT (0x01)**: Sent by workers to the Head Node every 2 seconds to maintain active registration.
-
-
-* 
-**MSG_TASK (0x02)**: Sent by the Head Node to workers containing the inference payload.
-
-
-* 
-**MSG_RESULT (0x03)**: Sent by workers back to the Head Node upon successful inference completion.
-
-
-
----
-
-## NixOS Deployment
-
-### 1. Enable the Cluster Module
-
-Add the HydraMesh module to your system configuration:
-
-```nix
-{
-  services.hydramesh = {
-    enable = true;
-    role = "head"; # Or "worker"
-    headIp = "100.x.y.z"; # IP of the controller node
-    hfToken = "your_huggingface_token";
-  };
-}
-
-```
-
-### 2. Network Configuration
-
-The framework requires the following UDP ports to be accessible within your mesh network:
-
-* **7777**: External Client Ingress (Head Node)
-* **7778**: Internal Worker Bus (Head Node)
-* **7779**: Internal Task Bus (Worker Nodes)
+| 13 | `payload_len` | u32 | Length of subsequent data |
 
 ---
 
 ## Resource Management
 
-To ensure professional stability, the system incorporates:
-
-* **System RAM Offloading**: Weights automatically spill to DRAM if VRAM is exceeded, preventing process termination.
-* **OOM Score Adjustment**: The inference daemon is prioritized by the kernel to prevent it from being killed during memory spikes.
 * 
-**Self-Healing**: The Head Node automatically prunes workers that fail to send a heartbeat within 10 seconds, rerouting subsequent tasks.
+**System RAM Offloading**: If VRAM is exhausted, the system spills model weights to DRAM via the `offload_folder` configuration.
+
+
+* **OOM Prioritization**: The NixOS module sets `OOMScoreAdjust = -500`, ensuring the Linux kernel preserves the inference process during memory spikes.
+* 
+**Self-Healing**: The Head Node prunes silent workers within 10 seconds based on RTT and heartbeat metrics.
 
 
 
 ---
 
-## Building and Development
+## Developer Experience (DevX)
 
-### Generate Dependencies
+To start a local development environment with all compilers and ML libraries:
 
 ```bash
 nix develop
 
 ```
 
-### Run Standalone Shim (Ingress)
-
-```bash
-SHIM_INGRESS_PORT=9999 SHIM_NODE_TARGET=127.0.0.1:7777 ./target/release/dcf-shim
+This shell provides the **HydraMesh SDK** components, including the `dcf-plugin-manager` logic for dynamic transport loading
