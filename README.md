@@ -1,6 +1,8 @@
-# AI Inference Environment (NixOS)
+# AI Inference Cluster (HydraMesh/DCF Edition)
 
-This repository provides a comprehensive Nix flake for deploying and running AI inference workloads. It supports both **Stable Diffusion** (image generation) and **LLMs** (text generation) using the SafeTensors format and CUDA acceleration.
+This repository provides a production-ready, distributed AI inference environment built on the **DeMoD Communications Framework (DCF)** design principles. It utilizes a high-performance, 17-byte binary UDP transport for inter-node communication, achieving the low-latency targets required for real-time applications.
+
+---
 
 ## Copyright and License
 
@@ -16,25 +18,110 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ---
 
-## Features
+## System Architecture
 
-* **Dual Modality**: Support for Image (Diffusers) and Text (Transformers) inference.
-* **Format Security**: Strictly prefers `.safetensors` to avoid pickle-based vulnerabilities.
-* **CUDA Optimized**: Auto-detects NVIDIA GPUs and enables fp16 precision, attention slicing, and 4-bit LLM quantization.
-* **Unified Web UI**: A tabbed Gradio interface for interacting with both models.
-* **NixOS Integration**: Includes a module for deploying as a systemd service.
+The environment implements a **Distributed DCF Mesh Orchestrator**, decoupling high-level routing from intensive GPU computation.
 
-## Prerequisites
+### Core Components
 
-1.  **Nix Package Manager** (Flakes enabled).
-2.  **NVIDIA GPU** with proprietary drivers enabled in your host Nix config (`allowUnfree = true`).
-3.  **HuggingFace Token**: Some models (like Llama 2/3) require a token. Log in via `huggingface-cli login` inside the dev shell if needed.
+* **DCF Standalone Shim**: A high-performance bidirectional UDP bridge written in Rust, serving as the ingress point for external clients.
+* 
+**Head Controller**: The central router that manages the `WorkerRegistry` via UDP heartbeats and load-balances tasks across the mesh using 17-byte DCF messages.
 
-## Usage
 
-### 1. Development Shell
+* 
+**Worker Nodes**: GPU-accelerated inference endpoints that execute LLM and Stable Diffusion tasks, utilizing 4-bit quantization and RAM offloading for hardware efficiency.
 
-Enter the environment to access python scripts and system dependencies directly:
+
+
+---
+
+## Technical Specifications
+
+| Component | Specification |
+| --- | --- |
+| **Protocol** | DCF Binary UDP (17-byte header) 
+
+ |
+| **Header Format** | `Type(u8)` |
+| **Target Latency** | <1ms local exchange 
+
+ |
+| **ML Framework** | PyTorch / Hugging Face Transformers & Diffusers |
+| **NixOS Support** | Native Flake with Systemd Hardening & Resource Limits |
+
+---
+
+## Cluster Protocol Definition
+
+The cluster utilizes the following message types for orchestration:
+
+* 
+**MSG_HEARTBEAT (0x01)**: Sent by workers to the Head Node every 2 seconds to maintain active registration.
+
+
+* 
+**MSG_TASK (0x02)**: Sent by the Head Node to workers containing the inference payload.
+
+
+* 
+**MSG_RESULT (0x03)**: Sent by workers back to the Head Node upon successful inference completion.
+
+
+
+---
+
+## NixOS Deployment
+
+### 1. Enable the Cluster Module
+
+Add the HydraMesh module to your system configuration:
+
+```nix
+{
+  services.hydramesh = {
+    enable = true;
+    role = "head"; # Or "worker"
+    headIp = "100.x.y.z"; # IP of the controller node
+    hfToken = "your_huggingface_token";
+  };
+}
+
+```
+
+### 2. Network Configuration
+
+The framework requires the following UDP ports to be accessible within your mesh network:
+
+* **7777**: External Client Ingress (Head Node)
+* **7778**: Internal Worker Bus (Head Node)
+* **7779**: Internal Task Bus (Worker Nodes)
+
+---
+
+## Resource Management
+
+To ensure professional stability, the system incorporates:
+
+* **System RAM Offloading**: Weights automatically spill to DRAM if VRAM is exceeded, preventing process termination.
+* **OOM Score Adjustment**: The inference daemon is prioritized by the kernel to prevent it from being killed during memory spikes.
+* 
+**Self-Healing**: The Head Node automatically prunes workers that fail to send a heartbeat within 10 seconds, rerouting subsequent tasks.
+
+
+
+---
+
+## Building and Development
+
+### Generate Dependencies
 
 ```bash
 nix develop
+
+```
+
+### Run Standalone Shim (Ingress)
+
+```bash
+SHIM_INGRESS_PORT=9999 SHIM_NODE_TARGET=127.0.0.1:7777 ./target/release/dcf-shim
